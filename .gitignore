@@ -1,0 +1,4 @@
+LookAwayLite.app/
+*.o
+*.dSYM/
+.DS_Store
