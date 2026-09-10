@@ -30,7 +30,7 @@ The menu bar item shows state at a glance:
 | `❙❙` | paused |
 
 The menu offers pause/resume, break now, skip, work interval (5–60 min), break length
-(20s–5min), and a compact mode that reduces the item to a single glyph — useful because a
+(20s–5min), separate start and end sounds, a completion card, and a compact mode that reduces the item to a single glyph — useful because a
 full macOS menu bar silently drops items that don't fit, especially on notched displays.
 
 ## Meeting detection
@@ -88,7 +88,8 @@ defaults read local.lookawaylite
 ```
 
 Keys: `workMinutes`, `breakSeconds`, `skipWhenMicActive`, `skipWhenCameraActive`,
-`skipDuringChromeCallTab`, `skipDuringCalendarEvents`, `compactStatusItem`.
+`skipDuringChromeCallTab`, `skipDuringCalendarEvents`, `compactStatusItem`, `breakSoundsEnabled`,
+`breakStartSoundEnabled`, `breakEndSoundEnabled`, `breakCompletionCardEnabled`.
 
 `LOOKAWAY_TEST_SECONDS=10` shortens the work interval to seconds for testing.
 
