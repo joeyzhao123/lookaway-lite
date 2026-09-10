@@ -170,87 +170,113 @@ final class CalendarWatch {
     }
 }
 
-final class OverlayWindow: NSWindow {
-    override var canBecomeKey: Bool { true }
+final class OverlayPanel: NSPanel {
+    var onClick: (() -> Void)?
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            onClick?()
+            return
+        }
+        super.sendEvent(event)
+    }
 }
 
 final class Overlay {
-    private var windows: [OverlayWindow] = []
-    private var labels: [NSTextField] = []
+    private var panels: [OverlayPanel] = []
+    private var countdownLabel: NSTextField?
+    var onSkip: (() -> Void)?
 
-    var isShowing: Bool { !windows.isEmpty }
+    var isShowing: Bool { !panels.isEmpty }
 
     func show(remaining: Int) {
-        guard windows.isEmpty else { return }
-        for screen in NSScreen.screens {
-            let win = OverlayWindow(contentRect: screen.frame,
-                                    styleMask: .borderless,
-                                    backing: .buffered,
-                                    defer: false)
-            win.level = .screenSaver
-            win.isOpaque = false
-            win.backgroundColor = NSColor.black.withAlphaComponent(0.88)
-            win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-            win.ignoresMouseEvents = false
-            win.setFrame(screen.frame, display: true)
+        guard panels.isEmpty, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
 
-            let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
-            win.contentView = content
+        let cardSize = NSSize(width: 320, height: 132)
+        let margin: CGFloat = 24
+        let frame = NSRect(x: screen.visibleFrame.maxX - cardSize.width - margin,
+                           y: screen.visibleFrame.minY + margin,
+                           width: cardSize.width,
+                           height: cardSize.height)
+        let panel = OverlayPanel(contentRect: frame,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered,
+                                 defer: false)
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        panel.hidesOnDeactivate = false
+        panel.onClick = { [weak self] in self?.onSkip?() }
 
-            let headline = NSTextField(labelWithString: "Look 20 feet away")
-            headline.font = .systemFont(ofSize: 46, weight: .semibold)
-            headline.textColor = .white
-            headline.alignment = .center
+        let content = NSVisualEffectView(frame: NSRect(origin: .zero, size: cardSize))
+        content.material = .hudWindow
+        content.blendingMode = .withinWindow
+        content.state = .active
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 16
+        content.layer?.masksToBounds = true
+        panel.contentView = content
 
-            let countdown = NSTextField(labelWithString: "\(remaining)")
-            countdown.font = .monospacedDigitSystemFont(ofSize: 120, weight: .thin)
-            countdown.textColor = .white
-            countdown.alignment = .center
+        let headline = NSTextField(labelWithString: "Look 20 feet away")
+        headline.font = .systemFont(ofSize: 16, weight: .semibold)
+        headline.textColor = .labelColor
+        headline.alignment = .center
 
-            let hint = NSTextField(labelWithString: "esc to skip")
-            hint.font = .systemFont(ofSize: 14, weight: .regular)
-            hint.textColor = NSColor.white.withAlphaComponent(0.45)
-            hint.alignment = .center
+        let countdown = NSTextField(labelWithString: "\(remaining)")
+        countdown.font = .monospacedDigitSystemFont(ofSize: 52, weight: .medium)
+        countdown.textColor = .labelColor
+        countdown.alignment = .center
+        countdown.setContentCompressionResistancePriority(.required, for: .vertical)
 
-            let stack = NSStackView(views: [headline, countdown, hint])
-            stack.orientation = .vertical
-            stack.alignment = .centerX
-            stack.spacing = 18
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(stack)
-            NSLayoutConstraint.activate([
-                stack.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-                stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            ])
+        let hint = NSTextField(labelWithString: "click to skip")
+        hint.font = .systemFont(ofSize: 11, weight: .regular)
+        hint.textColor = .secondaryLabelColor
+        hint.alignment = .center
 
-            win.alphaValue = 0
-            win.makeKeyAndOrderFront(nil)
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.45
-                win.animator().alphaValue = 1
-            }
+        let stack = NSStackView(views: [headline, countdown, hint])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+        ])
 
-            windows.append(win)
-            labels.append(countdown)
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.35
+            panel.animator().alphaValue = 1
         }
-        NSApp.activate(ignoringOtherApps: true)
+
+        panels = [panel]
+        countdownLabel = countdown
     }
 
     func update(remaining: Int) {
-        for label in labels { label.stringValue = "\(remaining)" }
+        countdownLabel?.stringValue = "\(remaining)"
     }
 
     func hide() {
-        let old = windows
-        windows.removeAll()
-        labels.removeAll()
+        let old = panels
+        panels.removeAll()
+        countdownLabel = nil
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.3
-            for win in old { win.animator().alphaValue = 0 }
+            for panel in old { panel.animator().alphaValue = 0 }
         }, completionHandler: {
-            for win in old { win.orderOut(nil) }
+            for panel in old { panel.orderOut(nil) }
         })
     }
+
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -281,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        overlay.onSkip = { [weak self] in self?.skip() }
 
         let d = UserDefaults.standard
         if d.object(forKey: defaultsWorkKey) != nil { workSeconds = d.integer(forKey: defaultsWorkKey) * 60 }
