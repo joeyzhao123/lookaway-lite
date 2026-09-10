@@ -15,6 +15,10 @@ let defaultsCalKey = "skipDuringCalendarEvents"
 let defaultsCamKey = "skipWhenCameraActive"
 let defaultsChromeKey = "skipDuringChromeCallTab"
 let defaultsCompactKey = "compactStatusItem"
+let defaultsSoundKey = "breakSoundsEnabled"
+let defaultsStartSoundKey = "breakStartSoundEnabled"
+let defaultsEndSoundKey = "breakEndSoundEnabled"
+let defaultsCompletionCardKey = "breakCompletionCardEnabled"
 
 /// Never suppress a break for longer than this, whatever the signals say — a wedged
 /// camera process or a forgotten meeting tab shouldn't cost you your eyes all afternoon.
@@ -187,7 +191,9 @@ final class OverlayPanel: NSPanel {
 
 final class Overlay {
     private var panels: [OverlayPanel] = []
+    private var headlineLabel: NSTextField?
     private var countdownLabel: NSTextField?
+    private var hintLabel: NSTextField?
     var onSkip: (() -> Void)?
 
     var isShowing: Bool { !panels.isEmpty }
@@ -259,16 +265,39 @@ final class Overlay {
 
         panels = [panel]
         countdownLabel = countdown
+        headlineLabel = headline
+        hintLabel = hint
     }
 
     func update(remaining: Int) {
         countdownLabel?.stringValue = "\(remaining)"
     }
 
+    func finish() {
+        let old = panels
+        panels.removeAll()
+        headlineLabel?.stringValue = "Break complete"
+        countdownLabel?.stringValue = "✓"
+        hintLabel?.stringValue = "back to work"
+        headlineLabel = nil
+        countdownLabel = nil
+        hintLabel = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.35
+                for panel in old { panel.animator().alphaValue = 0 }
+            }, completionHandler: {
+                for panel in old { panel.orderOut(nil) }
+            })
+        }
+    }
+
     func hide() {
         let old = panels
         panels.removeAll()
+        headlineLabel = nil
         countdownLabel = nil
+        hintLabel = nil
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.3
             for panel in old { panel.animator().alphaValue = 0 }
@@ -298,6 +327,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var heldForMeeting = false
     private var holdStarted: Date?
     private var compactStatus = true
+    private var startSoundEnabled = true
+    private var endSoundEnabled = true
+    private var completionCardEnabled = true
     private weak var statusHeader: NSMenuItem?
     private var micCache = (value: false, at: Date.distantPast)
     private var camCache = (value: false, at: Date.distantPast)
@@ -314,10 +346,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if d.object(forKey: defaultsBreakKey) != nil { breakSeconds = d.integer(forKey: defaultsBreakKey) }
         // Testing hook: LOOKAWAY_TEST_SECONDS=3 makes the first work interval tiny.
         if let t = ProcessInfo.processInfo.environment["LOOKAWAY_TEST_SECONDS"], let n = Int(t) { workSeconds = n }
+        if let t = ProcessInfo.processInfo.environment["LOOKAWAY_TEST_BREAK_SECONDS"], let n = Int(t) { breakSeconds = n }
         if d.object(forKey: defaultsMicKey) != nil { skipWhenMic = d.bool(forKey: defaultsMicKey) }
         if d.object(forKey: defaultsCamKey) != nil { skipWhenCamera = d.bool(forKey: defaultsCamKey) }
         skipDuringChromeCall = d.bool(forKey: defaultsChromeKey)
         if d.object(forKey: defaultsCompactKey) != nil { compactStatus = d.bool(forKey: defaultsCompactKey) }
+        let legacySounds = d.object(forKey: defaultsSoundKey).map { _ in d.bool(forKey: defaultsSoundKey) }
+        startSoundEnabled = d.object(forKey: defaultsStartSoundKey) != nil
+            ? d.bool(forKey: defaultsStartSoundKey) : (legacySounds ?? true)
+        endSoundEnabled = d.object(forKey: defaultsEndSoundKey) != nil
+            ? d.bool(forKey: defaultsEndSoundKey) : (legacySounds ?? true)
+        if d.object(forKey: defaultsCompletionCardKey) != nil { completionCardEnabled = d.bool(forKey: defaultsCompletionCardKey) }
         skipDuringEvents = d.bool(forKey: defaultsCalKey)
         calendar.refreshAuthorization()
         if skipDuringEvents && !calendar.authorized {
@@ -382,7 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         remaining -= 1
         if remaining <= 0 {
             if onBreak {
-                startWork()
+                startWork(completedBreak: true)
             } else if inMeeting() {
                 // Hold the break; re-check shortly and fire once the meeting ends.
                 if holdStarted == nil { holdStarted = Date() }
@@ -399,18 +438,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTitle()
     }
 
-    private func startWork() {
+    private func playBreakSound(named name: NSSound.Name) {
+        NSSound(named: name)?.play()
+    }
+
+    private func startWork(completedBreak: Bool = false) {
+        let wasOnBreak = onBreak
         onBreak = false
         heldForMeeting = false
         holdStarted = nil
         remaining = workSeconds
-        overlay.hide()
+        if completedBreak && wasOnBreak && !inMeeting() {
+            if endSoundEnabled { playBreakSound(named: NSSound.Name("Glass")) }
+            if completionCardEnabled {
+                overlay.finish()
+            } else {
+                overlay.hide()
+            }
+        } else {
+            overlay.hide()
+        }
         refreshTitle()
     }
 
     private func startBreak() {
         onBreak = true
         remaining = breakSeconds
+        if startSoundEnabled && !inMeeting() { playBreakSound(named: NSSound.Name("Tink")) }
         overlay.show(remaining: remaining)
         refreshTitle()
     }
@@ -508,6 +562,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         compactItem.state = compactStatus ? .off : .on
         menu.addItem(compactItem)
 
+        let startSoundItem = NSMenuItem(title: "Play sound when break starts",
+                                        action: #selector(toggleStartSound), keyEquivalent: "")
+        startSoundItem.state = startSoundEnabled ? .on : .off
+        menu.addItem(startSoundItem)
+
+        let endSoundItem = NSMenuItem(title: "Play sound when break ends",
+                                      action: #selector(toggleEndSound), keyEquivalent: "")
+        endSoundItem.state = endSoundEnabled ? .on : .off
+        menu.addItem(endSoundItem)
+
+        let completionItem = NSMenuItem(title: "Show break completion card",
+                                        action: #selector(toggleCompletionCard), keyEquivalent: "")
+        completionItem.state = completionCardEnabled ? .on : .off
+        menu.addItem(completionItem)
+
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
@@ -556,6 +625,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleCompact() {
         compactStatus.toggle()
         UserDefaults.standard.set(compactStatus, forKey: defaultsCompactKey)
+        rebuildMenu()
+    }
+
+    @objc private func toggleStartSound() {
+        startSoundEnabled.toggle()
+        UserDefaults.standard.set(startSoundEnabled, forKey: defaultsStartSoundKey)
+        UserDefaults.standard.set(startSoundEnabled || endSoundEnabled, forKey: defaultsSoundKey)
+        rebuildMenu()
+    }
+
+    @objc private func toggleEndSound() {
+        endSoundEnabled.toggle()
+        UserDefaults.standard.set(endSoundEnabled, forKey: defaultsEndSoundKey)
+        UserDefaults.standard.set(startSoundEnabled || endSoundEnabled, forKey: defaultsSoundKey)
+        rebuildMenu()
+    }
+
+    @objc private func toggleCompletionCard() {
+        completionCardEnabled.toggle()
+        UserDefaults.standard.set(completionCardEnabled, forKey: defaultsCompletionCardKey)
         rebuildMenu()
     }
 
