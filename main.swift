@@ -19,6 +19,7 @@ let defaultsSoundKey = "breakSoundsEnabled"
 let defaultsStartSoundKey = "breakStartSoundEnabled"
 let defaultsEndSoundKey = "breakEndSoundEnabled"
 let defaultsCompletionCardKey = "breakCompletionCardEnabled"
+let defaultsFullscreenKey = "fullscreenOverlay"
 
 /// Never suppress a break for longer than this, whatever the signals say — a wedged
 /// camera process or a forgotten meeting tab shouldn't hold a break all afternoon.
@@ -174,6 +175,15 @@ final class CalendarWatch {
     }
 }
 
+enum ReminderStyle {
+    case fullscreen
+    case card
+}
+
+final class OverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+
 final class OverlayPanel: NSPanel {
     var onClick: (() -> Void)?
 
@@ -190,16 +200,81 @@ final class OverlayPanel: NSPanel {
 }
 
 final class Overlay {
-    private var panels: [OverlayPanel] = []
-    private var headlineLabel: NSTextField?
-    private var countdownLabel: NSTextField?
-    private var hintLabel: NSTextField?
+    private var windows: [NSWindow] = []
+    private var headlineLabels: [NSTextField] = []
+    private var countdownLabels: [NSTextField] = []
+    private var hintLabels: [NSTextField] = []
     var onSkip: (() -> Void)?
 
-    var isShowing: Bool { !panels.isEmpty }
+    var isShowing: Bool { !windows.isEmpty }
 
-    func show(remaining: Int) {
-        guard panels.isEmpty, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+    func show(remaining: Int, style: ReminderStyle) {
+        guard windows.isEmpty else { return }
+        switch style {
+        case .fullscreen: showFullscreen(remaining: remaining)
+        case .card: showCard(remaining: remaining)
+        }
+    }
+
+    private func showFullscreen(remaining: Int) {
+        for screen in NSScreen.screens {
+            let win = OverlayWindow(contentRect: screen.frame,
+                                    styleMask: .borderless,
+                                    backing: .buffered,
+                                    defer: false)
+            win.level = .screenSaver
+            win.isOpaque = false
+            win.backgroundColor = NSColor.black.withAlphaComponent(0.88)
+            win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+            win.ignoresMouseEvents = false
+            win.setFrame(screen.frame, display: true)
+
+            let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            win.contentView = content
+
+            let headline = NSTextField(labelWithString: "Take a break")
+            headline.font = .systemFont(ofSize: 46, weight: .semibold)
+            headline.textColor = .white
+            headline.alignment = .center
+
+            let countdown = NSTextField(labelWithString: "\(remaining)")
+            countdown.font = .monospacedDigitSystemFont(ofSize: 120, weight: .thin)
+            countdown.textColor = .white
+            countdown.alignment = .center
+
+            let hint = NSTextField(labelWithString: "esc to skip")
+            hint.font = .systemFont(ofSize: 14, weight: .regular)
+            hint.textColor = NSColor.white.withAlphaComponent(0.45)
+            hint.alignment = .center
+
+            let stack = NSStackView(views: [headline, countdown, hint])
+            stack.orientation = .vertical
+            stack.alignment = .centerX
+            stack.spacing = 18
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            ])
+
+            win.alphaValue = 0
+            win.makeKeyAndOrderFront(nil)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.45
+                win.animator().alphaValue = 1
+            }
+
+            windows.append(win)
+            headlineLabels.append(headline)
+            countdownLabels.append(countdown)
+            hintLabels.append(hint)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showCard(remaining: Int) {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
 
         let cardSize = NSSize(width: 320, height: 132)
         let margin: CGFloat = 24
@@ -263,49 +338,48 @@ final class Overlay {
             panel.animator().alphaValue = 1
         }
 
-        panels = [panel]
-        countdownLabel = countdown
-        headlineLabel = headline
-        hintLabel = hint
+        windows = [panel]
+        headlineLabels = [headline]
+        countdownLabels = [countdown]
+        hintLabels = [hint]
     }
 
     func update(remaining: Int) {
-        countdownLabel?.stringValue = "\(remaining)"
+        for label in countdownLabels { label.stringValue = "\(remaining)" }
     }
 
     func finish() {
-        let old = panels
-        panels.removeAll()
-        headlineLabel?.stringValue = "Break complete"
-        countdownLabel?.stringValue = "✓"
-        hintLabel?.stringValue = "back to work"
-        headlineLabel = nil
-        countdownLabel = nil
-        hintLabel = nil
+        let old = windows
+        windows.removeAll()
+        for label in headlineLabels { label.stringValue = "Break complete" }
+        for label in countdownLabels { label.stringValue = "✓" }
+        for label in hintLabels { label.stringValue = "back to work" }
+        headlineLabels.removeAll()
+        countdownLabels.removeAll()
+        hintLabels.removeAll()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.35
-                for panel in old { panel.animator().alphaValue = 0 }
+                for win in old { win.animator().alphaValue = 0 }
             }, completionHandler: {
-                for panel in old { panel.orderOut(nil) }
+                for win in old { win.orderOut(nil) }
             })
         }
     }
 
     func hide() {
-        let old = panels
-        panels.removeAll()
-        headlineLabel = nil
-        countdownLabel = nil
-        hintLabel = nil
+        let old = windows
+        windows.removeAll()
+        headlineLabels.removeAll()
+        countdownLabels.removeAll()
+        hintLabels.removeAll()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.3
-            for panel in old { panel.animator().alphaValue = 0 }
+            for win in old { win.animator().alphaValue = 0 }
         }, completionHandler: {
-            for panel in old { panel.orderOut(nil) }
+            for win in old { win.orderOut(nil) }
         })
     }
-
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -330,6 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var startSoundEnabled = true
     private var endSoundEnabled = true
     private var completionCardEnabled = true
+    private var fullscreenOverlay = true
     private weak var statusHeader: NSMenuItem?
     private var micCache = (value: false, at: Date.distantPast)
     private var camCache = (value: false, at: Date.distantPast)
@@ -357,6 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         endSoundEnabled = d.object(forKey: defaultsEndSoundKey) != nil
             ? d.bool(forKey: defaultsEndSoundKey) : (legacySounds ?? true)
         if d.object(forKey: defaultsCompletionCardKey) != nil { completionCardEnabled = d.bool(forKey: defaultsCompletionCardKey) }
+        if d.object(forKey: defaultsFullscreenKey) != nil { fullscreenOverlay = d.bool(forKey: defaultsFullscreenKey) }
         skipDuringEvents = d.bool(forKey: defaultsCalKey)
         calendar.refreshAuthorization()
         if skipDuringEvents && !calendar.authorized {
@@ -465,7 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onBreak = true
         remaining = breakSeconds
         if startSoundEnabled && !inMeeting() { playBreakSound(named: NSSound.Name("Tink")) }
-        overlay.show(remaining: remaining)
+        overlay.show(remaining: remaining, style: fullscreenOverlay ? .fullscreen : .card)
         refreshTitle()
     }
 
@@ -562,6 +638,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         compactItem.state = compactStatus ? .off : .on
         menu.addItem(compactItem)
 
+        let fullscreenItem = NSMenuItem(title: "Full-screen overlay",
+                                        action: #selector(toggleFullscreen), keyEquivalent: "")
+        fullscreenItem.state = fullscreenOverlay ? .on : .off
+        menu.addItem(fullscreenItem)
+
         let startSoundItem = NSMenuItem(title: "Play sound when break starts",
                                         action: #selector(toggleStartSound), keyEquivalent: "")
         startSoundItem.state = startSoundEnabled ? .on : .off
@@ -645,6 +726,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleCompletionCard() {
         completionCardEnabled.toggle()
         UserDefaults.standard.set(completionCardEnabled, forKey: defaultsCompletionCardKey)
+        rebuildMenu()
+    }
+
+    @objc private func toggleFullscreen() {
+        fullscreenOverlay.toggle()
+        UserDefaults.standard.set(fullscreenOverlay, forKey: defaultsFullscreenKey)
+        if onBreak {
+            overlay.hide()
+            overlay.show(remaining: remaining, style: fullscreenOverlay ? .fullscreen : .card)
+        }
         rebuildMenu()
     }
 
