@@ -3,7 +3,7 @@ import CoreAudio
 import CoreMediaIO
 import EventKit
 
-// LookAway Lite — 20-20-20 break reminder living in the menu bar.
+// LookAway Lite — a break reminder living in the menu bar.
 // Every `workSeconds`, dim every screen and count down `breakSeconds`.
 // Breaks are held back while you're in a meeting (mic in use, and optionally
 // while a calendar event is running).
@@ -21,7 +21,7 @@ let defaultsEndSoundKey = "breakEndSoundEnabled"
 let defaultsCompletionCardKey = "breakCompletionCardEnabled"
 
 /// Never suppress a break for longer than this, whatever the signals say — a wedged
-/// camera process or a forgotten meeting tab shouldn't cost you your eyes all afternoon.
+/// camera process or a forgotten meeting tab shouldn't hold a break all afternoon.
 let maxHoldSeconds = 90 * 60
 
 /// True when any input device is actively capturing — i.e. some app holds the mic.
@@ -228,7 +228,7 @@ final class Overlay {
         content.layer?.masksToBounds = true
         panel.contentView = content
 
-        let headline = NSTextField(labelWithString: "Look 20 feet away")
+        let headline = NSTextField(labelWithString: "Take a break")
         headline.font = .systemFont(ofSize: 16, weight: .semibold)
         headline.textColor = .labelColor
         headline.alignment = .center
