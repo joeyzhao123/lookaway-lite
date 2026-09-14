@@ -314,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
 
     private var workSeconds = 20 * 60
-    private var breakSeconds = 2 * 60
+    private var breakSeconds = 20
     private var remaining = 0
     private var onBreak = false
     private var paused = false

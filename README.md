@@ -17,7 +17,7 @@ Requires macOS 14+ and the Command Line Tools (`xcode-select --install`).
 
 ## What it does
 
-Every 20 minutes (configurable), every screen dims and a 2-minute countdown appears by default.
+Every 20 minutes (configurable), every screen dims and a 20-second countdown appears.
 Press <kbd>esc</kbd> to skip a break.
 
 The menu bar item shows state at a glance:
