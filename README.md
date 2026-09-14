@@ -1,7 +1,7 @@
 # LookAwayLite
 
-A ~350-line Swift menu bar app for macOS that reminds you to look away from your screen
-(the 20-20-20 rule), and — the actual point — **never interrupts you during a meeting**.
+A ~350-line Swift menu bar app for macOS that reminds you to take a break, and — the actual
+point — **never interrupts you during a meeting**.
 
 No dependencies, no Xcode project, no frameworks beyond what ships with macOS.
 
@@ -17,7 +17,7 @@ Requires macOS 14+ and the Command Line Tools (`xcode-select --install`).
 
 ## What it does
 
-Every 20 minutes (configurable), every screen dims and a 20-second countdown appears.
+Every 20 minutes (configurable), every screen dims and a 2-minute countdown appears by default.
 Press <kbd>esc</kbd> to skip a break.
 
 The menu bar item shows state at a glance:
@@ -91,7 +91,8 @@ Keys: `workMinutes`, `breakSeconds`, `skipWhenMicActive`, `skipWhenCameraActive`
 `skipDuringChromeCallTab`, `skipDuringCalendarEvents`, `compactStatusItem`, `breakSoundsEnabled`,
 `breakStartSoundEnabled`, `breakEndSoundEnabled`, `breakCompletionCardEnabled`.
 
-`LOOKAWAY_TEST_SECONDS=10` shortens the work interval to seconds for testing.
+`LOOKAWAY_TEST_SECONDS=10` shortens the work interval to seconds for testing, and
+`LOOKAWAY_TEST_BREAK_SECONDS=5` shortens the break for testing.
 
 ## Verification
 
